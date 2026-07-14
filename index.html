@@ -81,17 +81,17 @@
   thead th{position:sticky;top:0;z-index:20;background:var(--surface);padding:10px 12px;text-align:left;font-weight:600;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);border-bottom:1px solid var(--border);border-right:1px solid rgba(46,49,70,0.35);white-space:nowrap}
   thead th:last-child{border-right:none}
   thead th:nth-child(1),thead th:nth-child(2),thead th:nth-child(3),thead th:nth-child(4){position:sticky;z-index:30;background:var(--surface)}
-  thead th:nth-child(1){left:0;min-width:90px}
-  thead th:nth-child(2){left:90px;min-width:140px}
-  thead th:nth-child(3){left:230px;min-width:110px;text-align:center}
-  thead th:nth-child(4){left:340px;min-width:95px;text-align:center;border-right:1px solid rgba(108,140,255,0.25)}
+  thead th:nth-child(1){left:0;min-width:150px}
+  thead th:nth-child(2){left:150px;min-width:140px}
+  thead th:nth-child(3){left:290px;min-width:110px;text-align:center}
+  thead th:nth-child(4){left:400px;min-width:95px;text-align:center;border-right:1px solid rgba(108,140,255,0.25)}
   tbody td{padding:8px 12px;border-bottom:1px solid rgba(46,49,70,0.35);border-right:1px solid rgba(46,49,70,0.35);white-space:nowrap}
   tbody td:last-child{border-right:none}
   tbody td:nth-child(1),tbody td:nth-child(2),tbody td:nth-child(3),tbody td:nth-child(4){position:sticky;z-index:10;background:var(--bg)}
-  tbody td:nth-child(1){left:0;min-width:90px}
-  tbody td:nth-child(2){left:90px;min-width:140px}
-  tbody td:nth-child(3){left:230px;min-width:110px;text-align:center;font-weight:600}
-  tbody td:nth-child(4){left:340px;min-width:95px;text-align:center;font-weight:600;border-right:1px solid rgba(108,140,255,0.25)}
+  tbody td:nth-child(1){left:0;min-width:150px}
+  tbody td:nth-child(2){left:150px;min-width:140px}
+  tbody td:nth-child(3){left:290px;min-width:110px;text-align:center;font-weight:600}
+  tbody td:nth-child(4){left:400px;min-width:95px;text-align:center;font-weight:600;border-right:1px solid rgba(108,140,255,0.25)}
   tbody td.date-cell{text-align:center;cursor:pointer;min-width:55px;transition:background 0.1s;font-weight:600;font-size:0.78rem;position:relative}
   tbody td.date-cell:hover{background:var(--surface2)}
   tbody td.period-cell{text-align:center;cursor:default;min-width:80px;transition:background 0.1s;font-weight:600;font-size:0.8rem}
@@ -118,6 +118,10 @@
   .val-2nd{color:#facc15}
   .val-final{color:#f59e0b}
   .val-term{color:#ff6b7a}
+  .val-sick{color:#38bdf8}
+  .sick-badge{display:inline-block;min-width:26px;text-align:center;padding:3px 6px;border-radius:5px;font-size:0.7rem;font-weight:700;border:1px solid rgba(56,189,248,0.35);color:#38bdf8;background:rgba(56,189,248,0.08);margin-right:6px}
+  .sick-badge.sick-low{color:#f59e0b;border-color:rgba(245,158,11,0.35);background:rgba(245,158,11,0.08)}
+  .sick-badge.sick-empty{color:#ff6b7a;border-color:rgba(255,107,122,0.35);background:rgba(255,107,122,0.08)}
   .pts-green{color:#4ade80}
   .pts-yellow{color:#facc15}
   .pts-orange{color:#f59e0b}
@@ -301,6 +305,8 @@
       <div class="key-item"><div class="key-swatch" style="background:#ef4444"></div> Terminated</div>
       <div class="key-sep"></div>
       <div class="key-item"><span style="color:#facc15;font-size:0.85rem">&#9733;</span> Has note</div>
+      <div class="key-sep"></div>
+      <div class="key-item"><span class="sick-badge" style="margin-right:0">18.5</span> NYC-PS&amp;STO (Protected Safe &amp; Sick Time Off) hours remaining, 32/yr, before name</div>
     </div>
   </div>
   <div class="toolbar">
@@ -373,6 +379,11 @@
       <button class="btn" style="color:#f59e0b;border-color:rgba(245,158,11,0.4)" onclick="fillEdit('Final')">Final</button>
       <button class="btn" style="color:#ef4444;border-color:rgba(239,68,68,0.4)" onclick="fillEdit('Terminated')">Terminated</button>
       <button class="btn" style="color:#a78bfa;border-color:rgba(167,139,250,0.4)" onclick="fillEdit('Completed')">Completed</button>
+    </div>
+    <div class="modal-btns" style="align-items:center">
+      <button class="btn" style="color:#38bdf8;border-color:rgba(56,189,248,0.4)" onclick="addSickTime(15)">+15 min NYC-PS&amp;STO</button>
+      <button class="btn" style="color:#38bdf8;border-color:rgba(56,189,248,0.4)" onclick="addSickTime(60)">+1 hr NYC-PS&amp;STO</button>
+      <span id="sickPreview" style="font-size:0.72rem;color:var(--text-muted)"></span>
     </div>
     <div style="margin-top:16px">
       <div class="note-label-row">
@@ -677,6 +688,23 @@ function processFile(file) {
   reader.onload = e => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array' });
+      // The "NYC Protected Safe & Sick Time Off" export puts a pivot-summary sheet
+      // first and the actual row-level data on a later sheet, so scan all sheets
+      // for one with Type/Status/Start Date/Paid Hours columns rather than assuming
+      // sheet 0 is the data.
+      let sickRows = null, sickCols = null;
+      for (const sheetName of wb.SheetNames) {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+        if (!rows.length) continue;
+        const cols = Object.keys(rows[0]);
+        const hasType = cols.some(c => /^type$/i.test(c.trim()));
+        const hasStatus = cols.some(c => /^status$/i.test(c.trim()));
+        const hasStartDate = cols.some(c => /start.?date/i.test(c));
+        const hasPaidHrs = cols.some(c => /paid.?hours/i.test(c));
+        if (hasType && hasStatus && hasStartDate && hasPaidHrs) { sickRows = rows; sickCols = cols; break; }
+      }
+      if (sickRows) { parseSickTimeReport(sickRows, sickCols); return; }
+
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
       if (!rows.length) { toast('File appears empty', 'error'); return; }
@@ -694,6 +722,54 @@ function processFile(file) {
     } catch(err) { console.error(err); toast('Error: ' + err.message, 'error'); }
   };
   reader.readAsArrayBuffer(file);
+}
+// ── NYC Protected Safe & Sick Time Off report importer ───────────────────────
+// Only pulls rows where Type = "NYC Protected Safe & Sick Time Off" and
+// Status = "Approved". Only imports requests whose Start Date falls in the
+// window below (currently the week this report covers, 6/22–6/28/2026) since
+// that's the only span loaded in this particular export.
+const SICK_IMPORT_WINDOW_START = '2026-06-22';
+const SICK_IMPORT_WINDOW_END = '2026-06-28';
+function parseSickTimeReport(rows, cols) {
+  const nameCol = cols.find(c => /^name$/i.test(c.trim()));
+  const typeCol = cols.find(c => /^type$/i.test(c.trim()));
+  const statusCol = cols.find(c => /^status$/i.test(c.trim()));
+  const startDateCol = cols.find(c => /start.?date/i.test(c));
+  const paidCol = cols.find(c => /^paid.?hours$/i.test(c.trim())) || cols.find(c => /paid.?hours/i.test(c) && !/unpaid/i.test(c));
+  const unpaidCol = cols.find(c => /unpaid.?hours/i.test(c));
+  if (!nameCol || !typeCol || !statusCol || !startDateCol) {
+    toast('Could not detect sick time report columns.', 'error');
+    return;
+  }
+  const parsed = {};
+  let skippedOutOfWindow = 0, skippedNotApproved = 0;
+  rows.forEach(row => {
+    const type = (row[typeCol] || '').toString().trim();
+    if (!/nyc protected safe\s*&?\s*sick time off/i.test(type)) return;
+    const status = (row[statusCol] || '').toString().trim();
+    const name = (row[nameCol] || '').toString().trim();
+    if (!name) return;
+    let rawDate = row[startDateCol];
+    let ds = '';
+    if (typeof rawDate === 'number') { const d = XLSX.SSF.parse_date_code(rawDate); ds = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`; }
+    else { const d = new Date(rawDate); ds = !isNaN(d) ? d.toISOString().split('T')[0] : (rawDate || '').toString().substring(0,10); }
+    if (ds < SICK_IMPORT_WINDOW_START || ds > SICK_IMPORT_WINDOW_END) { skippedOutOfWindow++; return; }
+    if (!/^approved$/i.test(status)) { skippedNotApproved++; return; }
+    const paidHrs = parseFloat(row[paidCol]) || 0;
+    const unpaidHrs = parseFloat(row[unpaidCol]) || 0;
+    const totalHrs = paidHrs + unpaidHrs;
+    if (totalHrs <= 0) return;
+    const mins = Math.round(totalHrs * 60);
+    const sk = name.replace(/[^a-zA-Z0-9_, -]/g, '_');
+    if (!parsed[sk]) parsed[sk] = { displayName: name, dates: {} };
+    const existingMins = parseSickMinutes(parsed[sk].dates[ds]) || 0;
+    parsed[sk].dates[ds] = formatSickLabel(existingMins + mins);
+  });
+  if (!Object.keys(parsed).length) {
+    toast('No approved NYC-PS&STO requests found for ' + SICK_IMPORT_WINDOW_START + ' to ' + SICK_IMPORT_WINDOW_END, 'error');
+    return;
+  }
+  showPreview(parsed);
 }
 function parseIncidentLog(rows, nameCol, dateCol, typeCol) {
   const parsed = {};
@@ -859,6 +935,47 @@ function getPoints(val) {
   if (v === '0.5') return 0.5;
   return 0;
 }
+// ── NYC-PS&STO: NYC Protected Safe & Sick Time Off (32 hrs/year) ──────────
+const SICK_ANNUAL_HOURS = 32;
+// Recognizes: legacy "Unpaid Sick Time" (=8h), legacy "Sick:180"/"SUST:..." formats,
+// and the current "NYC-PS&STO: 3h 15m" format. Returns total minutes or null if not a sick entry.
+function parseSickMinutes(val) {
+  if (!val) return null;
+  const v = val.toString().trim();
+  if (/^unpaid sick time$/i.test(v)) return 480;
+  let m = v.match(/^NYC-PS&STO:\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*$/i);
+  if (m && (m[1] || m[2])) return (parseInt(m[1] || 0, 10) * 60) + (parseInt(m[2] || 0, 10));
+  m = v.match(/^SUST:\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*$/i); // legacy label
+  if (m && (m[1] || m[2])) return (parseInt(m[1] || 0, 10) * 60) + (parseInt(m[2] || 0, 10));
+  m = v.match(/^Sick:(\d+)$/i); // legacy minutes-only format
+  if (m) return parseInt(m[1], 10) || 0;
+  return null;
+}
+function getSickMinutesUsed(dates) {
+  let total = 0;
+  Object.values(dates || {}).forEach(v => {
+    const mins = parseSickMinutes(v);
+    if (mins) total += mins;
+  });
+  return total;
+}
+function getSickHoursRemaining(dates) {
+  const usedMin = getSickMinutesUsed(dates);
+  const remaining = SICK_ANNUAL_HOURS - (usedMin / 60);
+  return Math.max(0, Math.round(remaining * 100) / 100);
+}
+function fmtSickRemaining(hrs) {
+  if (Number.isInteger(hrs)) return hrs.toString();
+  return (Math.round(hrs * 100) / 100).toString();
+}
+// Under 60 min: "45m". At/above 60 min: hours + leftover minutes, e.g. "3h" or "3h 15m".
+function formatMinutesLabel(mins) {
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h && m) return h + 'h ' + m + 'm';
+  if (h) return h + 'h';
+  return m + 'm';
+}
+function formatSickLabel(mins) { return 'NYC-PS&STO: ' + formatMinutesLabel(mins); }
 function getWriteupPts(dates) {
   const writeupTypes = ['1st','2nd','final','terminated','term','completed'];
   let lastWriteupDate = null;
@@ -946,6 +1063,9 @@ function cellHtml(val) {
   if (v==='2nd') return '<span class="val-2nd">2nd</span>';
   if (/^final$/i.test(v)) return '<span class="val-final">Final</span>';
   if (/^term/i.test(v)) return '<span class="val-term">TERM</span>';
+  if (/^unpaid sick time$/i.test(v)) return '<span class="val-sick">NYC-PS&STO: 8h</span>';
+  const sickMins=parseSickMinutes(v);
+  if (sickMins!==null) return '<span class="val-sick">'+formatSickLabel(sickMins)+'</span>';
   return '<span style="color:var(--text-dim)">'+v+'</span>';
 }
 function fmtDate(d) {
@@ -1018,7 +1138,10 @@ function renderTable() {
     } else {
       cells=filteredDates.map(d=>{ const v=dates[d]||''; const hasUserNote=!!(userNotes[d]&&userNotes[d].trim()); const starHtml=hasUserNote?'<span class="note-star">&#9733;</span>':''; const titleAttr=hasUserNote?` title="${(userNotes[d]||'').replace(/"/g,'&quot;')}"`:'' ; return `<td class="date-cell" onclick="openEdit('${key.replace(/'/g,"\\'")}','${d}')"${titleAttr}>${cellHtml(v)}${starHtml}</td>`; }).join('');
     }
-    return `<tr><td><span class="name-badge ${nc}">${fn}</span></td><td><span class="name-badge ${nc}">${ln}</span>${wuTag}</td><td class="${ptsColor(mainPts)}">${mainPts>0?mainPts%1===0?mainPts:mainPts.toFixed(1):'0'}</td><td class="${ptsColor(wp)}">${wp>0?wp%1===0?wp:wp.toFixed(1):'0'}</td>${cells}</tr>`;
+    const sickRemaining=getSickHoursRemaining(dates);
+    const sickCls=sickRemaining<=0?'sick-empty':(sickRemaining<=8?'sick-low':'');
+    const sickBadge=`<span class="sick-badge ${sickCls}" title="NYC-PS&STO hours remaining (32/yr)">${fmtSickRemaining(sickRemaining)}</span>`;
+    return `<tr><td>${sickBadge}<span class="name-badge ${nc}">${fn}</span></td><td><span class="name-badge ${nc}">${ln}</span>${wuTag}</td><td class="${ptsColor(mainPts)}">${mainPts>0?mainPts%1===0?mainPts:mainPts.toFixed(1):'0'}</td><td class="${ptsColor(wp)}">${wp>0?wp%1===0?wp:wp.toFixed(1):'0'}</td>${cells}</tr>`;
   }).join('');
 }
 function fmtDateLong(d) {
@@ -1037,9 +1160,35 @@ function openEdit(pk,dt) {
   document.getElementById('userNoteInput').value=(p&&p.userNotes&&p.userNotes[dt])?p.userNotes[dt]:'';
   document.getElementById('hidePersonBtn').textContent=(p&&p.hidden)?'Unhide Budtender':'Hide Budtender';
   document.getElementById('editModal').classList.add('active');
+  updateSickPreview();
   setTimeout(()=>input.focus(),100);
 }
-function fillEdit(val) { document.getElementById('editInput').value=val; }
+function fillEdit(val) { document.getElementById('editInput').value=val; updateSickPreview(); }
+function addSickTime(minutesToAdd) {
+  const input = document.getElementById('editInput');
+  const current = parseSickMinutes(input.value) || 0;
+  input.value = formatSickLabel(current + minutesToAdd);
+  updateSickPreview();
+}
+function updateSickPreview() {
+  const preview = document.getElementById('sickPreview');
+  if (!preview) return;
+  const val = (document.getElementById('editInput').value || '').trim();
+  const mins = parseSickMinutes(val);
+  if (mins !== null) {
+    let remaining = SICK_ANNUAL_HOURS;
+    if (editingPerson && attendanceData[editingPerson] && attendanceData[editingPerson].dates) {
+      const other = Object.assign({}, attendanceData[editingPerson].dates);
+      delete other[editingDate];
+      remaining = SICK_ANNUAL_HOURS - (getSickMinutesUsed(other) / 60) - (mins / 60);
+      remaining = Math.max(0, Math.round(remaining * 100) / 100);
+    }
+    preview.textContent = formatSickLabel(mins) + ' \u00b7 ' + fmtSickRemaining(remaining) + 'h left after save';
+  } else {
+    preview.textContent = '';
+  }
+}
+document.getElementById('editInput').addEventListener('input', updateSickPreview);
 function clearUserNote() { document.getElementById('userNoteInput').value=''; document.getElementById('userNoteInput').focus(); }
 function saveEdit() {
   if (!editingPerson||!editingDate) return;
@@ -1064,13 +1213,13 @@ function deletePerson() {
 function exportCSV() {
   if (!Object.keys(attendanceData).length) { toast('No data','error'); return; }
   rebuildDates();
-  let csv='First Name,Last Name,Annual Pts,Last 60 Days,Write-Up Pts,'+allDates.map(d=>fmtDate(d)).join(',')+'\n';
+  let csv='First Name,Last Name,Annual Pts,Last 60 Days,Write-Up Pts,Sick Hrs Remaining,'+allDates.map(d=>fmtDate(d)).join(',')+'\n';
   Object.entries(attendanceData).sort((a,b)=>(a[1].displayName||a[0]).localeCompare(b[1].displayName||b[0])).forEach(([k,p])=>{
     const name=p.displayName||k; let fn='',ln='';
     if (name.includes(',')) { const pts=name.split(',').map(s=>s.trim()); ln=pts[0]; fn=pts[1]||''; }
     else { const pts=name.split(' ').filter(Boolean); fn=pts[0]||''; ln=pts.slice(1).join(' '); }
-    const dates=p.dates||{}, ap=getAnnualPts(dates), l60=getLast60Pts(dates), wp=getWriteupPts(dates);
-    csv+=`"${fn}","${ln}",${ap},${l60},${wp},${allDates.map(d=>dates[d]||'').join(',')}\n`;
+    const dates=p.dates||{}, ap=getAnnualPts(dates), l60=getLast60Pts(dates), wp=getWriteupPts(dates), sr=getSickHoursRemaining(dates);
+    csv+=`"${fn}","${ln}",${ap},${l60},${wp},${sr},${allDates.map(d=>dates[d]||'').join(',')}\n`;
   });
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   a.download=`attendance_5thave_${new Date().toISOString().split('T')[0]}.csv`; a.click();
